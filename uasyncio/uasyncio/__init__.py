@@ -2,6 +2,24 @@ import errno
 import uselect as select
 import usocket as _socket
 from uasyncio.core import *
+from sys import platform
+
+class ObjMap(dict):
+    @staticmethod
+    def sock_fd(sock_ref):
+        # Compute socket file descriptor replacement for esp8266
+        # sock_ref is a fd in most systems. esp8266 uses sockets instead
+        if isinstance(sock_ref, int):
+            return sock_ref
+        return sock_ref.fileno() if platform != 'esp8266' else id(sock_ref)
+    def __getitem__(self, key):
+        return super().__getitem__(self.sock_fd(key))
+    def __setitem__(self, key, value):
+        super().__setitem__(self.sock_fd(key), value)
+    def __delitem__(self, key):
+        return super().__delitem__(self.sock_fd(key))
+    def __contains__(self, key):
+        return True if self.sock_fd(key) in self.keys() else False
 
 
 class EpollEventLoop(EventLoop):
@@ -9,7 +27,7 @@ class EpollEventLoop(EventLoop):
     def __init__(self):
         EventLoop.__init__(self)
         self.poller = select.poll()
-        self.objmap = {}
+        self.objmap = ObjMap()
 
     def add_reader(self, fd, cb, *args):
         if __debug__:
@@ -42,7 +60,8 @@ class EpollEventLoop(EventLoop):
             log.debug("remove_writer(%s)", fd)
         try:
             self.poller.unregister(fd)
-            self.objmap.pop(fd, None)
+            if fd in self.objmap:
+                del self.objmap[fd]
         except OSError as e:
             # StreamWriter.awrite() first tries to write to an fd,
             # and if that succeeds, yield IOWrite may never be called
