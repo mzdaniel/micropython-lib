@@ -2,22 +2,7 @@ try:
     import utime as time
 except ImportError:
     import time
-try:
-    from utimeq import utimeq
-except ImportError:
-    class utimeq(object):
-        # Simple utimeq drop-in
-        _q = list()
-        def __new__(cls, len=128):
-            self = super(utimeq, cls).__new__(cls)
-            self.__dict__ = None  # Garbage collect unneeded instance dict
-            return self
-        def push(self, *args):
-            self._q.append(args)
-        def pop(self, l):
-            l[:] = list(self._q.pop(0))
-        def __len__(self):
-            return len(self._q)
+import utimeq
 import logging
 
 
@@ -27,10 +12,10 @@ log = logging.getLogger("asyncio")
 
 type_gen = type((lambda: (yield))())
 
-
 class EventLoop:
+
     def __init__(self, len=128):
-        self.q = utimeq(len)
+        self.q = utimeq.utimeq(len)
 
     def time(self):
         return time.ticks_ms()
@@ -99,23 +84,23 @@ class EventLoop:
                     if __debug__ and DEBUG:
                         log.debug("Coroutine %s yield result: %s", cb, ret)
                     if isinstance(ret, SysCall1):
-                        sock = ret.arg
+                        arg = ret.arg
                         if isinstance(ret, Sleep):
                             delay = int(arg * 1000)
                         elif isinstance(ret, IORead):
 #                            self.add_reader(ret.obj.fileno(), lambda self, c, f: self.call_soon(c, f), self, cb, ret.obj)
 #                            self.add_reader(ret.obj.fileno(), lambda c, f: self.call_soon(c, f), cb, ret.obj)
 #                            self.add_reader(arg.fileno(), lambda cb: self.call_soon(cb), cb)
-                            self.add_reader(sock, cb)
+                            self.add_reader(arg, cb)
                             continue
                         elif isinstance(ret, IOWrite):
 #                            self.add_writer(arg.fileno(), lambda cb: self.call_soon(cb), cb)
-                            self.add_writer(sock, cb)
+                            self.add_writer(arg, cb)
                             continue
                         elif isinstance(ret, IOReadDone):
-                            self.remove_reader(sock)
+                            self.remove_reader(arg)
                         elif isinstance(ret, IOWriteDone):
-                            self.remove_writer(sock)
+                            self.remove_writer(arg)
                         elif isinstance(ret, StopLoop):
                             return arg
                     elif isinstance(ret, type_gen):

@@ -4,22 +4,12 @@ import usocket as _socket
 from uasyncio.core import *
 from sys import platform
 
-class ObjMap(dict):
-    @staticmethod
-    def sock_fd(sock_ref):
-        # Compute socket file descriptor replacement for esp8266
-        # sock_ref is a fd in most systems. esp8266 uses sockets instead
-        if isinstance(sock_ref, int):
-            return sock_ref
-        return sock_ref.fileno() if platform != 'esp8266' else id(sock_ref)
-    def __getitem__(self, key):
-        return super().__getitem__(self.sock_fd(key))
-    def __setitem__(self, key, value):
-        super().__setitem__(self.sock_fd(key), value)
-    def __delitem__(self, key):
-        return super().__delitem__(self.sock_fd(key))
-    def __contains__(self, key):
-        return True if self.sock_fd(key) in self.keys() else False
+def sock_fd(sock_ref):
+    # Compute socket file descriptor replacement for esp8266
+    # sock_ref is a fd in most systems. esp8266 uses sockets instead
+    if isinstance(sock_ref, int):
+        return sock_ref
+    return sock_ref.fileno() if platform != 'esp8266' else id(sock_ref)
 
 
 class EpollEventLoop(EventLoop):
@@ -27,41 +17,40 @@ class EpollEventLoop(EventLoop):
     def __init__(self):
         EventLoop.__init__(self)
         self.poller = select.poll()
-        self.objmap = ObjMap()
+        self.objmap = {}
 
     def add_reader(self, fd, cb, *args):
         if __debug__:
             log.debug("add_reader%s", (fd, cb, args))
         if args:
             self.poller.register(fd, select.POLLIN)
-            self.objmap[fd] = (cb, args)
+            self.objmap[sock_fd(fd)] = (cb, args)
         else:
             self.poller.register(fd, select.POLLIN)
-            self.objmap[fd] = cb
+            self.objmap[sock_fd(fd)] = cb
 
     def remove_reader(self, fd):
         if __debug__:
             log.debug("remove_reader(%s)", fd)
         self.poller.unregister(fd)
-        del self.objmap[fd]
+        del self.objmap[sock_fd(fd)]
 
     def add_writer(self, fd, cb, *args):
         if __debug__:
             log.debug("add_writer%s", (fd, cb, args))
         if args:
             self.poller.register(fd, select.POLLOUT)
-            self.objmap[fd] = (cb, args)
+            self.objmap[sock_fd(fd)] = (cb, args)
         else:
             self.poller.register(fd, select.POLLOUT)
-            self.objmap[fd] = cb
+            self.objmap[sock_fd(fd)] = cb
 
     def remove_writer(self, fd):
         if __debug__:
             log.debug("remove_writer(%s)", fd)
         try:
             self.poller.unregister(fd)
-            if fd in self.objmap:
-                del self.objmap[fd]
+            self.objmap.pop(sock_fd(fd), None)
         except OSError as e:
             # StreamWriter.awrite() first tries to write to an fd,
             # and if that succeeds, yield IOWrite may never be called
@@ -80,7 +69,7 @@ class EpollEventLoop(EventLoop):
             res = self.poller.poll(delay, 1)
         #log.debug("epoll result: %s", res)
         for fd, ev in res:
-            cb = self.objmap[fd]
+            cb = self.objmap[sock_fd(fd)]
             if __debug__:
                 log.debug("Calling IO callback: %r", cb)
             if isinstance(cb, tuple):
