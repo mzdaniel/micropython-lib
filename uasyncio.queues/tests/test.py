@@ -1,4 +1,4 @@
-from unittest import TestCase, run_class
+from unittest import TestCase, main
 import sys
 sys.path.insert(0, '../uasyncio')
 import queues
@@ -54,4 +54,4 @@ class QueueTestCase(TestCase):
 
 
 if __name__ == '__main__':
-    run_class(QueueTestCase)
+    main()
